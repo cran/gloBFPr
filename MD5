@@ -1,0 +1,16 @@
+01233d59fc5ad9da929ea09e9440ae3a *DESCRIPTION
+c261f60d1cb07edeccd1ede95295d0b6 *LICENSE
+7e88fc75a3f2be683db2a8511fb57c09 *NAMESPACE
+00b813486159f19685f9aab4b68e943b *R/get_metadata.R
+399db28345aea1cfb3f601efc1d21bc6 *R/search.R
+56b0fbc6ae535634c4d36e0e482f9b21 *R/utils.R
+928d7dc9daecb96cd6b3fee665bde4b6 *build/vignette.rds
+e316ba7a1bbe1314c34b20ad685626a4 *inst/doc/gloBFPr.R
+26c84c0bafbf5282bdc8affef0018526 *inst/doc/gloBFPr.Rmd
+b318fdf5a1ea8226459a1eacedd64447 *inst/doc/gloBFPr.html
+e39071b36d1997d03a2a04a4a4fd00a0 *man/get_metadata.Rd
+e92e4f5b015679f1cfab0f627f83805c *man/search_3dglobdf.Rd
+22eea0b11305d2e57a472bfcfcf81c69 *tests/testthat.R
+8d3a3f005d5bf5839dc4be1d76af0116 *tests/testthat/test-get_metadata.R
+defaee564116dbf453daa41f237e1ce6 *tests/testthat/test-search.R
+26c84c0bafbf5282bdc8affef0018526 *vignettes/gloBFPr.Rmd
