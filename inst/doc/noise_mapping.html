@@ -9,10 +9,9 @@
 <meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
 
 
-<meta name="author" content="Xiaohao Yang" />
 
 
-<title>gloBFPr</title>
+<title>Urban Noise Mapping with gloBFPr and NoiseModelling</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -349,38 +348,258 @@ display: none;
 
 
 
-<h1 class="title toc-ignore">gloBFPr</h1>
-<h4 class="author">Xiaohao Yang</h4>
+<h1 class="title toc-ignore">Urban Noise Mapping with gloBFPr and
+NoiseModelling</h1>
 
 </div>
 
 
-<div id="step-1-get-the-spatial-grid-with-the-metadata-of-the-dataset" class="section level2">
-<h2>Step 1 Get the Spatial Grid with the Metadata of the Dataset</h2>
-<pre class="r"><code>metadata &lt;- gloBFPr::get_metadata()</code></pre>
+<div id="urban-noise-mapping" class="section level1">
+<h1>Urban Noise Mapping</h1>
+<p>This vignette shows how to prepare road-noise modelling inputs from
+building height data, OSM-style roads, greenspace, canopy height, and
+optional terrain data. The same input pattern used by <code>svf()</code>
+is used here: pass building footprints as <code>x</code>, choose the
+height column with <code>height_field</code>, and supply canopy/DEM
+rasters directly or let the function retrieve them.</p>
+<pre class="r"><code>library(gloBFPr)
+library(sf)
+library(terra)</code></pre>
+<p>The package includes a small building layer and companion raster
+examples. For a real study area, replace this with
+<code>search_3dglobdf()</code>.</p>
+<pre class="r"><code>data(globfp_example)
+data(globfp_example_dem)
+data(globfp_example_canopy_height)
+
+buildings &lt;- globfp_example
+dem &lt;- rast(globfp_example_dem)
+canopy_height &lt;- rast(globfp_example_canopy_height)
+
+names(buildings)</code></pre>
+<div id="prepare-inputs" class="section level2">
+<h2>1 Prepare Inputs</h2>
+<p>By default, <code>prepare_noisemodelling_inputs()</code> and
+<code>get_noise_map()</code> download OSM roads from the bounding box of
+<code>x</code>. If measured traffic columns are not present,
+<code>infer_osm_traffic()</code> fills screening-level speed and traffic
+assumptions from the OSM <code>highway</code> class.</p>
+<pre class="r"><code>noise_inputs &lt;- prepare_noisemodelling_inputs(
+  x = buildings,
+  height_field = &quot;Height&quot;,
+  datasource_greenspace = &quot;esri&quot;,
+  greenspace_zoom = 14,
+  canopy_height = canopy_height,
+  dem = dem,
+  receiver = &quot;grid&quot;,
+  resolution = 25,
+  quiet = FALSE
+)</code></pre>
+<p>For measured traffic counts, pass a road layer with NoiseModelling
+traffic columns directly through <code>roads</code>. The inferred
+defaults are useful for screening or scenario comparisons, not
+calibrated regulatory maps.</p>
+<p>Use <code>prepare_noisemodelling_inputs()</code> when you want to
+inspect or export the layers before running the external NoiseModelling
+solver.</p>
+<pre class="r"><code>noise_inputs &lt;- prepare_noisemodelling_inputs(
+  x = buildings,
+  height_field = &quot;Height&quot;,
+  canopy_height = canopy_height,
+  dem = dem,
+  receiver = &quot;grid&quot;,
+  resolution = 25,
+  quiet = TRUE
+)
+
+names(noise_inputs)
+nrow(noise_inputs$receivers)</code></pre>
+<p>The prepared object contains:</p>
+<ul>
+<li><code>buildings</code>: building polygons with <code>PK</code>,
+<code>HEIGHT</code>, and optional <code>POP</code>.</li>
+<li><code>roads</code>: road lines with <code>PK</code> and
+CNOSSOS-style traffic columns.</li>
+<li><code>ground</code>: hard/green ground absorption polygons.</li>
+<li><code>receivers</code>: 3D receiver points, defaulting to 4 m
+height.</li>
+<li><code>dem</code>: optional terrain raster aligned for later
+export.</li>
+</ul>
+<p>You can write a GeoPackage for inspection.</p>
+<pre class="r"><code>noise_inputs &lt;- prepare_noisemodelling_inputs(
+  x = buildings,
+  roads = roads,
+  canopy_height = canopy_height,
+  dem = dem,
+  out_dir = tempdir(),
+  write = TRUE,
+  quiet = TRUE
+)
+
+noise_inputs$gpkg</code></pre>
+<div id="fetch-canopy-greenspace-and-dem-internally" class="section level3">
+<h3>Fetch Canopy, Greenspace, and DEM Internally</h3>
+<p>The noise functions can follow the same style as <code>svf()</code>:
+provide <code>datasource_canopy_height</code>,
+<code>datasource_greenspace</code>, and <code>key</code> instead of
+supplying rasters. Roads are downloaded internally from the building
+extent unless you pass <code>roads</code> explicitly.</p>
+<pre class="r"><code>noise_inputs &lt;- prepare_noisemodelling_inputs(
+  x = buildings,
+  height_field = &quot;Height&quot;,
+  min_tree_height = 2,
+  datasource_canopy_height = &quot;metachm&quot;,
+  datasource_greenspace = &quot;esri&quot;,
+  opentopo_key = Sys.getenv(&quot;OPENTOPOGRAPHY_KEY&quot;),
+  receiver = &quot;grid&quot;,
+  resolution = 25,
+  quiet = TRUE
+)</code></pre>
+<p><code>opentopo_key</code> is only needed when DEM retrieval is
+requested. Canopy height is used to classify green ground absorption; it
+is not treated as a hard acoustic barrier.</p>
 </div>
-<div id="step-2.1-retrieve-building-footprints-with-heights-using-a-bounding-box" class="section level2">
-<h2>Step 2.1 Retrieve Building Footprints with Heights Using a Bounding
-Box</h2>
-<p>Set <code>out_type = &quot;all&quot;</code> o return a comprehensive list of
-outputs, including: - <code>poly</code>: an <code>sf</code> object of
-building footprints, - <code>binary</code>: a <code>terra</code> raster
-indicating presence/absence of buildings, and - <code>graduated</code>:
-a <code>terra</code> raster representing building height.</p>
-<p>Specify <code>cell_size = 1</code> to generate raster layers with
-1-meter resolution, ensuring detailed spatial representation of building
-geometries within the defined area of interest.</p>
-<pre class="r"><code>buildings_list &lt;- gloBFPr::search_3dglobdf(bbox = c(-83.065644,42.333792,-83.045217,42.346988), 
-                                           metadata = metadata, out_type = &quot;all&quot;, cell_size = 1)</code></pre>
 </div>
-<div id="step-2.2-retrieve-building-footprints-with-heights-using-a-bounding-box" class="section level2">
-<h2>Step 2.2 Retrieve Building Footprints with Heights Using a Bounding
-Box</h2>
-<p>Setting <code>mask = TRUE</code> ensures the height raster is masked
-by the building footprints.</p>
-<pre class="r"><code>buildings_list &lt;- gloBFPr::search_3dglobdf(bbox = c(-83.065644,42.333792,-83.045217,42.346988), 
-                                           metadata = metadata, out_type = &quot;all&quot;, 
-                                           mask = TRUE, cell_size = 1)</code></pre>
+<div id="run-noisemodelling" class="section level2">
+<h2>2 Run NoiseModelling</h2>
+<p><code>get_noise_map(run = TRUE)</code> runs the official headless
+NoiseModelling WPS scripts. This requires Java 11 or newer
+(11&lt;=version&lt;=17). The first run can download the headless
+NoiseModelling release into the R user cache, or you can preinstall it
+with <code>install_noisemodelling()</code>.</p>
+<pre class="r"><code>install_noisemodelling(version = &quot;5.0.1&quot;)</code></pre>
+<pre class="r"><code>noise_result &lt;- get_noise_map(
+  x = buildings,
+  height_field = &quot;Height&quot;,
+  datasource_canopy_height = &quot;metachm&quot;,
+  datasource_greenspace = &quot;esri&quot;,
+  dem = dem,
+  receiver = &quot;grid&quot;,
+  resolution = 25,
+  run = TRUE,
+  keep_files = TRUE,
+  quiet = FALSE,
+  java = 17
+)
+plot_noise_map(noise_result, period = &quot;DEN&quot;, scalebar = TRUE)</code></pre>
+<pre class="r"><code>plot_noise_map(noise_result, period = &quot;DEN&quot;)</code></pre>
+<p>The result includes the prepared inputs, the raw
+<code>RECEIVERS_LEVEL</code> output, a spatial <code>noise_map</code>
+receiver layer with period-specific columns such as <code>LAEQ_D</code>,
+<code>LAEQ_E</code>, <code>LAEQ_N</code>, and <code>LAEQ_DEN</code>, the
+official NoiseModelling <code>CONTOURING_NOISE_MAP</code> polygons in
+<code>isophones</code>, the exported GeoJSON paths, logs from each WPS
+script, and the NoiseModelling runner path.</p>
+<p>For production work, start with a building layer from
+<code>search_3dglobdf()</code> and replace OSM-inferred traffic with
+local speed and volume observations when available.</p>
+<div id="advanced-noisemodelling-controls" class="section level3">
+<h3>Advanced NoiseModelling Controls</h3>
+<p><code>get_noise_map()</code> exposes the main acoustic controls used
+by <code>Noise_level_from_source.groovy</code>. The defaults are
+deliberately moderate for screening maps; increasing propagation
+distance, reflection order, diffraction, or ray export can make the run
+much slower.</p>
+<pre class="r"><code>noise_result &lt;- get_noise_map(
+  x = buildings,
+  height_field = &quot;Height&quot;,
+  canopy_height = canopy_height,
+  dem = dem,
+  receiver = &quot;grid&quot;,
+  resolution = 25,
+  run = TRUE,
+  java = 17,
+  reflection_order = 1,
+  max_src_distance = 500,
+  max_reflection_distance = 350,
+  diffraction_horizontal = TRUE,
+  diffraction_vertical = FALSE,
+  wall_alpha = 0.1,
+  humidity = 75,
+  temperature = 31,
+  favourable_occurrences = rep(0.5, 16),
+  max_error = 0.1,
+  export_source_id = FALSE,
+  frequency_field_prepend = &quot;HZ&quot;
+)</code></pre>
+<pre class="r"><code>plot_noise_map(noise_result, period = &quot;DEN&quot;, scalebar = TRUE)</code></pre>
+<p>Key controls:</p>
+<ul>
+<li><code>reflection_order</code>: maximum number of specular
+reflections on vertical surfaces. Higher values are more realistic in
+street canyons but much slower.</li>
+<li><code>max_src_distance</code>: maximum source-receiver search
+distance in meters. Larger values include farther roads.</li>
+<li><code>max_reflection_distance</code>: maximum distance used when
+searching walls for reflected paths.</li>
+<li><code>diffraction_horizontal</code> and
+<code>diffraction_vertical</code>: enable diffraction over horizontal
+edges or around vertical edges. NoiseModelling recommends horizontal
+diffraction for many propagation studies; vertical diffraction is mainly
+for rail and industrial sources under CNOSSOS-EU guidance.</li>
+<li><code>wall_alpha</code>: wall absorption coefficient.
+<code>0.1</code> is a common reflective facade assumption.</li>
+<li><code>humidity</code>, <code>temperature</code>, and
+<code>favourable_occurrences</code>: atmospheric absorption and
+meteorological propagation settings.</li>
+<li><code>max_error</code>: pruning threshold in dB for negligible
+source contributions. A smaller value can be more complete but
+slower.</li>
+<li><code>export_source_id</code>: keeps receiver levels by source id,
+useful for source contribution diagnostics.</li>
+<li><code>rays_name</code>: exports propagation rays or attenuation
+diagnostics to a table or file URL. This is mainly for debugging and can
+be very large.</li>
+<li><code>noise_wps_args</code>: passes named raw arguments to the
+NoiseModelling WPS script for advanced options not yet represented by a
+dedicated R argument.</li>
+</ul>
+<p>The OSM traffic defaults used by <code>infer_osm_traffic()</code>
+mirror the category values embedded in NoiseModelling’s
+<code>Import_OSM.groovy</code>, including the cited Good Practice Guide
+assumptions. <code>Import_OSM.groovy</code> itself works from a local
+<code>.osm</code>, <code>.osm.gz</code>, or <code>.osm.pbf</code>
+extract; the current R workflow instead downloads roads from the
+building bounding box and applies matching traffic defaults in R.</p>
+<p>If you already have a local OSM extract and want NoiseModelling to
+create the <code>ROADS</code> table itself, pass <code>osm_file</code>
+and leave <code>roads = NULL</code>.</p>
+<p>You can download a regional <code>.osm.pbf</code> extract directly in
+R. <code>osmextract</code> is a convenient option when the area is
+available from a provider such as Geofabrik:</p>
+<pre class="r"><code>install.packages(&quot;osmextract&quot;)
+
+osm_file &lt;- osmextract::oe_get(
+  place = &quot;Detroit, Michigan&quot;,
+  provider = &quot;geofabrik&quot;,
+  download_directory = tempdir(),
+  force_download = FALSE
+)</code></pre>
+<p>You can also download a known extract URL with base R:</p>
+<pre class="r"><code>osm_file &lt;- file.path(tempdir(), &quot;michigan-latest.osm.pbf&quot;)
+
+utils::download.file(
+  &quot;https://download.geofabrik.de/north-america/us/michigan-latest.osm.pbf&quot;,
+  osm_file,
+  mode = &quot;wb&quot;
+)</code></pre>
+<pre class="r"><code>noise_result &lt;- get_noise_map(
+  x = buildings,
+  height_field = &quot;Height&quot;,
+  canopy_height = canopy_height,
+  dem = dem,
+  osm_file = osm_file,
+  receiver = &quot;grid&quot;,
+  resolution = 25,
+  run = TRUE,
+  java = 17
+)</code></pre>
+<p>This uses your <code>x</code> buildings and ground preparation from
+R, but asks NoiseModelling’s <code>Import_OSM.groovy</code> to create
+the road network and traffic defaults from the OSM file.</p>
+</div>
+</div>
 </div>
 
 
